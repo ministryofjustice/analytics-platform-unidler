@@ -164,7 +164,7 @@ def write_changes(deployment):
     log.debug(
         f'Writing changes to deployment {deployment.metadata.name} '
         f'in namespace {deployment.metadata.namespace}')
-    client.AppsV1beta1Api().patch_namespaced_deployment(
+    client.AppsV1beta1Api().replace_namespaced_deployment(
         deployment.metadata.name,
         deployment.metadata.namespace,
         deployment)
@@ -183,16 +183,8 @@ def enable_ingress(ingress):
 
 def unmark_idled(deployment):
     log.debug('Removing idled annotation and label')
-
-    deployment.metadata.labels = dict(
-        filter(
-            lambda label: label[0] != IDLED,
-            deployment.metadata.labels.items()))
-
-    deployment.metadata.annotations = dict(
-        filter(
-            lambda annotation: annotation[0] != IDLED_AT,
-            deployment.metadata.annotations.items()))
+    del deployment.metadata.labels[IDLED]
+    del deployment.metadata.annotations[IDLED_AT]
 
 
 @contextlib.contextmanager

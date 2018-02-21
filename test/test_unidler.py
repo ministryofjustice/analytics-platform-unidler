@@ -110,7 +110,7 @@ def test_write_changes(client, deployment):
     unidler.write_changes(deployment)
 
     api = client.AppsV1beta1Api.return_value
-    api.patch_namespaced_deployment.assert_called_with(
+    api.replace_namespaced_deployment.assert_called_with(
         deployment.metadata.name,
         deployment.metadata.namespace,
         deployment)
@@ -125,7 +125,7 @@ def test_deployment_for_ingress(client, deployment, ingress):
             ingress.metadata.name,
             ingress.metadata.namespace)
 
-    api.patch_namespaced_deployment.assert_called_with(
+    api.replace_namespaced_deployment.assert_called_with(
         deployment.metadata.name,
         deployment.metadata.namespace,
         deployment)
@@ -171,7 +171,7 @@ def test_unidle_deployment(client, deployment, ingress, unidler_ingress):
 
         unidler.unidle_deployment(HOSTNAME)
 
-        apps.patch_namespaced_deployment.assert_called_with(
+        apps.replace_namespaced_deployment.assert_called_with(
             deployment.metadata.name,
             deployment.metadata.namespace,
             deployment)
