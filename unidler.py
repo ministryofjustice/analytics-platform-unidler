@@ -55,7 +55,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             unidle_deployment(hostname)
             log.info('Unidled {hostname}')
-            self.respond(503, 'Unidling, please try again', {
+            url = f'//{hostname}{self.path}'
+            body = f'Unidling, please <a href="{url}">try again</a>'
+            self.respond(503, body, {
+                'Content-type': 'text/html',
+                'Refresh': f'10; {url}',
                 'Retry-After': 10})
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
