@@ -1,4 +1,5 @@
 import contextlib
+from http import HTTPStatus
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import logging
 import os
@@ -48,33 +49,25 @@ class RequestHandler(BaseHTTPRequestHandler):
         hostname = self.headers.get('X-Forwarded-Host')
 
         if not hostname:
-            return self.respond(200, 'OK')
+            return self.respond(HTTPStatus.OK, 'Unidler OK')
 
         log.info(f'Received {self.requestline} for host {hostname}')
 
         try:
             unidle_deployment(hostname)
             log.info('Unidled {hostname}')
-            url = f'//{hostname}{self.path}'
-            body = f'Unidling, please <a href="{url}">try again</a>'
-            self.respond(503, body, {
-                'Content-type': 'text/html',
-                'Refresh': f'10; {url}',
-                'Retry-After': 10})
+            self.respond(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                'Unidling, please try again in a few seconds',
+                {'Retry-After': 10})
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
             log.error(not_found)
-            self.respond(404, not_found)
+            self.respond(HTTPStatus.NOT_FOUND, not_found.message)
 
         except kubernetes.client.rest.ApiException as error:
             log.error(error)
-            self.respond(500, error)
-
-    def do_HEAD(self):
-        self.respond(200)
-
-    def do_POST(self):
-        self.do_GET()
+            self.respond(HTTPStatus.INTERNAL_SERVER_ERROR, error.message)
 
     def respond(self, status, body=None, headers={}):
         self.send_response(status)
@@ -158,13 +151,13 @@ def deployment_for_ingress(ingress):
 
         yield deployment
 
-        write_changes(deployment)
+        write_deployment_changes(deployment)
 
     except kubernetes.client.rest.ApiException as error:
         raise DeploymentNotFound(f'Deployment {name} not found in {namespace}')
 
 
-def write_changes(deployment):
+def write_deployment_changes(deployment):
     log.debug(
         f'Writing changes to deployment {deployment.metadata.name} '
         f'in namespace {deployment.metadata.namespace}')

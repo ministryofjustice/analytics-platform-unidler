@@ -68,15 +68,11 @@ def unidler_ingress():
 
 
 def test_remove_host_rule(unidler_ingress):
-    assert len(list(filter(
-        lambda rule: rule.host == HOSTNAME,
-        unidler_ingress.spec.rules))) == 1
+    assert any(rule.host == HOSTNAME for rule in unidler_ingress.spec.rules)
 
     unidler.remove_host_rule(HOSTNAME, unidler_ingress)
 
-    assert len(list(filter(
-        lambda rule: rule.host == HOSTNAME,
-        unidler_ingress.spec.rules))) == 0
+    assert all(rule.host != HOSTNAME for rule in unidler_ingress.spec.rules)
 
 
 def test_unmark_idled(deployment):
@@ -106,8 +102,8 @@ def test_restore_replicas(deployment):
     assert deployment.spec.replicas == 2
 
 
-def test_write_changes(client, deployment):
-    unidler.write_changes(deployment)
+def test_write_deployment_changes(client, deployment):
+    unidler.write_deployment_changes(deployment)
 
     api = client.AppsV1beta1Api.return_value
     api.replace_namespaced_deployment.assert_called_with(
