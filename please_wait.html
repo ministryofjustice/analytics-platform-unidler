@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Unidling, please wait</title>
+  </head>
+  <body>
+    <h1>Unidling, please wait a few seconds</h1>
+    <script>
+(function () {
+
+  var delay = 3000;
+  var url = 'UNIDLER_REDIRECT_URL';
+
+  function redirect_when_ready() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState === 4) {
+        // request is DONE
+        if (xhr.status >= 200 && xhr.status < 400) {
+          // target is ready, so redirect
+          window.location = url;
+
+        } else {
+          // check again after a delay
+          window.setTimeout(redirect_when_ready, delay);
+        }
+      }
+    };
+
+    xhr.send();
+  }
+
+  window.setTimeout(redirect_when_ready, delay);
+})();
+    </script>
+  </body>
+</html>

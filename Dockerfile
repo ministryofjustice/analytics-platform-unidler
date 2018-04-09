@@ -8,5 +8,6 @@ ADD requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
 ADD unidler.py unidler.py
+ADD please_wait.html please_wait.html
 
 CMD ["python", "unidler.py"]
