@@ -20,11 +20,9 @@
     xhr.onreadystatechange = function () {
       if (xhr.readyState === XMLHttpRequest.DONE) {
         if (xhr.status >= 200 && xhr.status < 400) {
-          // target is ready, so redirect
           window.location = URL;
 
         } else {
-          // check again after a delay
           window.setTimeout(redirect_when_ready, DELAY);
         }
       }
