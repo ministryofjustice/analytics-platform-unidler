@@ -17,8 +17,7 @@
     xhr.open('GET', url, true);
 
     xhr.onreadystatechange = function () {
-      if (xhr.readyState === 4) {
-        // request is DONE
+      if (xhr.readyState === XMLHttpRequest.DONE) {
         if (xhr.status >= 200 && xhr.status < 400) {
           // target is ready, so redirect
           window.location = url;
