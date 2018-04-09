@@ -5,26 +5,27 @@
     <title>Unidling, please wait</title>
   </head>
   <body>
-    <h1>Unidling, please wait a few seconds</h1>
+    <h1>Unidling, please wait</h1>
+    <p>You will be redirected automatically when unidling is complete.</p>
     <script>
 (function () {
 
-  var delay = 3000;
-  var url = 'UNIDLER_REDIRECT_URL';
+  var DELAY = 3000;
+  var URL = 'UNIDLER_REDIRECT_URL';
 
   function redirect_when_ready() {
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
+    xhr.open('GET', URL, true);
 
     xhr.onreadystatechange = function () {
       if (xhr.readyState === XMLHttpRequest.DONE) {
         if (xhr.status >= 200 && xhr.status < 400) {
           // target is ready, so redirect
-          window.location = url;
+          window.location = URL;
 
         } else {
           // check again after a delay
-          window.setTimeout(redirect_when_ready, delay);
+          window.setTimeout(redirect_when_ready, DELAY);
         }
       }
     };
@@ -32,7 +33,7 @@
     xhr.send();
   }
 
-  window.setTimeout(redirect_when_ready, delay);
+  window.setTimeout(redirect_when_ready, DELAY);
 })();
     </script>
   </body>
