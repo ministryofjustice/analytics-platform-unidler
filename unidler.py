@@ -54,7 +54,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         hostname = self.headers.get('X-Forwarded-Host')
 
         if hostname is None or hostname.startswith('unidler.'):
-            return self.respond(OK, 'Unidler OK')
+            self.respond(OK, 'Unidler OK')
 
         else:
             log.info(f'Received {self.requestline} for host {hostname}')
@@ -89,14 +89,14 @@ class IngressNotFound(Exception):
 def unidle_deployment(hostname):
     ingresses = build_ingress_lookup()
 
+    with ingress(UNIDLER, 'default', ingresses) as unidler_ingress:
+        remove_host_rule(hostname, unidler_ingress)
+
     with ingress_for_host(hostname, ingresses) as ing:
         with deployment_for_ingress(ing) as deployment:
             restore_replicas(deployment)
             unmark_idled(deployment)
             enable_ingress(ing)
-
-    with ingress(UNIDLER, 'default', ingresses) as unidler_ingress:
-        remove_host_rule(hostname, unidler_ingress)
 
 
 def build_ingress_lookup():
@@ -184,8 +184,10 @@ def enable_ingress(ingress):
 
 def unmark_idled(deployment):
     log.debug('Removing idled annotation and label')
-    del deployment.metadata.labels[IDLED]
-    del deployment.metadata.annotations[IDLED_AT]
+    if IDLED in deployment.metadata.labels:
+        del deployment.metadata.labels[IDLED]
+    if IDLED_AT in deployment.metadata.annotations:
+        del deployment.metadata.annotations[IDLED_AT]
 
 
 @contextlib.contextmanager
@@ -209,7 +211,9 @@ def remove_host_rule(hostname, ingress):
 def please_wait(hostname):
     with open('please_wait.html') as f:
         body = f.read()
-        return body.replace("UNIDLER_REDIRECT_URL = ''", f'https://{hostname}')
+        return body.replace(
+            f"UNIDLER_REDIRECT_URL = ''",
+            f"UNIDLER_REDIRECT_URL = 'https://{hostname}'")
 
 
 if __name__ == '__main__':

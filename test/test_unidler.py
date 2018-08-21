@@ -177,13 +177,13 @@ def test_unidle_deployment(client, deployment, ingress, unidler_ingress):
 
         assert extensions.patch_namespaced_ingress.mock_calls == [
             call(
-                ingress.metadata.name,
-                ingress.metadata.namespace,
-                ingress),
-            call(
                 unidler_ingress.metadata.name,
                 unidler_ingress.metadata.namespace,
                 unidler_ingress),
+            call(
+                ingress.metadata.name,
+                ingress.metadata.namespace,
+                ingress),
         ]
         assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
 
