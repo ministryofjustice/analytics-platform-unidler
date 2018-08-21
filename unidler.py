@@ -21,7 +21,12 @@ from kubernetes.client.models import (
 IDLED = 'mojanalytics.xyz/idled'
 IDLED_AT = 'mojanalytics.xyz/idled-at'
 INGRESS_CLASS = 'kubernetes.io/ingress.class'
+INTERNAL_SERVER_ERROR = HTTPStatus.INTERNAL_SERVER_ERROR
+NOT_FOUND = HTTPStatus.NOT_FOUND
+OK = HTTPStatus.OK
+SERVICE_UNAVAILABLE = HTTPStatus.SERVICE_UNAVAILABLE
 UNIDLER = 'unidler'
+
 
 
 logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'DEBUG'))
@@ -48,36 +53,29 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         hostname = self.headers.get('X-Forwarded-Host')
 
-        if not hostname:
-            return self.respond(HTTPStatus.OK, 'Unidler OK')
+        if hostname is None or hostname.startswith('unidler.'):
+            return self.respond(OK, 'Unidler OK')
 
-        log.info(f'Received {self.requestline} for host {hostname}')
+        else:
+            log.info(f'Received {self.requestline} for host {hostname}')
+            self.handle_errors(unidle_deployment, hostname)
+            self.respond(SERVICE_UNAVAILABLE, please_wait(hostname))
 
+    def handle_errors(self, fn, *args):
         try:
-            unidle_deployment(hostname)
-            log.info('Unidled {hostname}')
-            self.respond(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                'Unidling, please try again in a few seconds',
-                {'Retry-After': 10})
+            fn(*args)
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
-            log.error(not_found)
-            self.respond(HTTPStatus.NOT_FOUND, not_found.message)
+            self.send_error(NOT_FOUND, not_found.message)
 
-        except kubernetes.client.rest.ApiException as error:
-            log.error(error)
-            self.respond(HTTPStatus.INTERNAL_SERVER_ERROR, error.message)
+        except Exception as error:
+            self.send_error(INTERNAL_SERVER_ERROR, error.message)
 
-    def respond(self, status, body=None, headers={}):
+    def respond(self, status, body):
         self.send_response(status)
-        for header, value in headers.items():
-            self.send_header(header, value)
-        if 'Content-type' not in headers:
-            self.send_header('Content-type', 'text/plain')
+        self.send_header('Content-type', 'text/html')
         self.end_headers()
-        if body:
-            self.wfile.write(str(body).encode('utf-8'))
+        self.wfile.write(str(body).encode('utf-8'))
 
 
 class DeploymentNotFound(Exception):
@@ -168,9 +166,15 @@ def write_deployment_changes(deployment):
 
 
 def restore_replicas(deployment):
-    idled_at, replicas = deployment.metadata.annotations[IDLED_AT].split(',')
-    log.debug(f'Restoring {replicas} replicas')
-    deployment.spec.replicas = int(replicas)
+    annotation = deployment.metadata.annotations.get(IDLED_AT)
+
+    if annotation is not None:
+        idled_at, replicas = annotation.split(',')
+        log.debug(f'Restoring {replicas} replicas')
+        deployment.spec.replicas = int(replicas)
+
+    else:
+        log.error('Deployment has no idled-at annotation')
 
 
 def enable_ingress(ingress):
@@ -200,6 +204,12 @@ def remove_host_rule(hostname, ingress):
         filter(
             lambda rule: rule.host != hostname,
             ingress.spec.rules))
+
+
+def please_wait(hostname):
+    with open('please_wait.html') as f:
+        body = f.read()
+        return body.replace("UNIDLER_REDIRECT_URL = ''", f'https://{hostname}')
 
 
 if __name__ == '__main__':
