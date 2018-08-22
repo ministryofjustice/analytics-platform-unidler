@@ -44,15 +44,14 @@
 
         function redirect_when_ready() {
           var xhr = new XMLHttpRequest();
+          xhr.addEventListener("error", transferFailed);
           xhr.open('GET', UNIDLER_REDIRECT_URL, true);
 
-          xhr.onreadystatechange = function () {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-              if (xhr.status >= 200 && xhr.status < 404) {
-                window.location = UNIDLER_REDIRECT_URL;
-              } else {
-                window.setTimeout(redirect_when_ready, DELAY);
-              }
+          xhr.onloadend = function () {
+            if (xhr.status >= 200 && xhr.status < 404) {
+              window.location = UNIDLER_REDIRECT_URL;
+            } else {
+              window.setTimeout(redirect_when_ready, DELAY);
             }
           };
 
