@@ -213,6 +213,10 @@ def remove_host_rule(hostname, ingress):
         filter(
             lambda rule: rule.host != hostname,
             ingress.spec.rules))
+    ingress.spec.tls.hosts = list(
+        filter(
+            lambda host: host != hostname,
+            ingress.spec.tls.hosts))
 
 
 def enable_ingress(ingress):

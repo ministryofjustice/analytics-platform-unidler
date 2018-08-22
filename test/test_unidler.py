@@ -67,6 +67,9 @@ def unidler_ingress(client):
     ingress.spec.rules = [
         host_rule,
     ]
+    ingress.spec.tls.hosts = [
+        HOSTNAME,
+    ]
     ingress.metadata.name = UNIDLER
     ingress.metadata.namespace = UNIDLER_NAMESPACE
     return ingress
@@ -74,10 +77,12 @@ def unidler_ingress(client):
 
 def test_remove_host_rule(unidler_ingress):
     assert any(rule.host == HOSTNAME for rule in unidler_ingress.spec.rules)
+    assert any(host == HOSTNAME for host in unidler_ingress.spec.tls.hosts)
 
     unidler.remove_host_rule(HOSTNAME, unidler_ingress)
 
     assert all(rule.host != HOSTNAME for rule in unidler_ingress.spec.rules)
+    assert all(host != HOSTNAME for host in unidler_ingress.spec.tls.hosts)
 
 
 def test_unmark_idled(deployment):
