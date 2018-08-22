@@ -67,10 +67,6 @@ def unidler_ingress(client):
     ingress.spec.rules = [
         host_rule,
     ]
-    ingress.spec.tls = [MagicMock()]
-    ingress.spec.tls[0].hosts = [
-        HOSTNAME,
-    ]
     ingress.metadata.name = UNIDLER
     ingress.metadata.namespace = UNIDLER_NAMESPACE
     return ingress
@@ -78,12 +74,10 @@ def unidler_ingress(client):
 
 def test_remove_host_rule(unidler_ingress):
     assert any(rule.host == HOSTNAME for rule in unidler_ingress.spec.rules)
-    assert any(host == HOSTNAME for host in unidler_ingress.spec.tls[0].hosts)
 
     unidler.remove_host_rule(HOSTNAME, unidler_ingress)
 
     assert all(rule.host != HOSTNAME for rule in unidler_ingress.spec.rules)
-    assert all(host != HOSTNAME for host in unidler_ingress.spec.tls[0].hosts)
 
 
 def test_unmark_idled(deployment):
@@ -250,6 +244,8 @@ class TestRequestHandler(object):
             unidler_ingress.spec.rules))) == 0
 
         assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
+
+        assert HOSTNAME not in RequestHandler.unidling
 
     def handle_request(self, method, path, headers={}):
         request = f'{method} {path} HTTP/1.0\n'

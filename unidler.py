@@ -59,8 +59,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             if hostname in self.unidling:
                 if self.unidling[hostname].is_done():
                     self.unidling[hostname].enable_ingress()
+                    del self.unidling[hostname]
 
-            else:
+            elif is_idle(hostname):
                 self.unidling[hostname] = Unidling(hostname)
                 self.unidling[hostname].start()
 
@@ -96,6 +97,7 @@ class Unidling(object):
         self.deployment = None
         self.started = False
         self.replicas = 0
+        self.enabled = False
 
     def start(self):
         if not self.started:
@@ -120,14 +122,16 @@ class Unidling(object):
         return False
 
     def enable_ingress(self):
-        ingress = unidler_ingress()
-        remove_host_rule(self.hostname, ingress)
-        write_ingress_changes(ingress)
-        # XXX do we need to wait here for the ingress controller to pick up the
-        # changes?
-        ingress = ingress_for_host(self.hostname)
-        enable_ingress(self.ingress)
-        write_ingress_changes(self.ingress)
+        if not self.enabled:
+            self.enabled = True
+            ingress = unidler_ingress()
+            remove_host_rule(self.hostname, ingress)
+            write_ingress_changes(ingress)
+            # XXX do we need to wait here for the ingress controller to pick up the
+            # changes?
+            ingress = ingress_for_host(self.hostname)
+            enable_ingress(self.ingress)
+            write_ingress_changes(self.ingress)
 
 
 def deployment_for_ingress(ingress):
@@ -158,6 +162,11 @@ def ingress_for_host(hostname):
         raise IngressNotFound(hostname)
 
     return ingress
+
+
+def is_idle(hostname):
+    deployment = deployment_for_ingress(ingress_for_host(hostname))
+    return IDLED in deployment.metadata.labels
 
 
 def restore_replicas(deployment):
@@ -215,10 +224,6 @@ def remove_host_rule(hostname, ingress):
         filter(
             lambda rule: rule.host != hostname,
             ingress.spec.rules))
-    ingress.spec.tls[0].hosts = list(
-        filter(
-            lambda host: host != hostname,
-            ingress.spec.tls[0].hosts))
 
 
 def enable_ingress(ingress):
