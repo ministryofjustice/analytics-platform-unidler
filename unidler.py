@@ -113,9 +113,10 @@ class Unidling(object):
     def is_done(self):
         if self.started:
             self.deployment = deployment_for_ingress(self.ingress)
+            replicas = int(self.deployment.status.available_replicas or 0)
             return (
                 IDLED not in self.deployment.metadata.labels and
-                self.deployment.status.available_replicas >= 1)
+                replicas >= 1)
         return False
 
     def enable_ingress(self):
@@ -124,6 +125,7 @@ class Unidling(object):
         write_ingress_changes(ingress)
         # XXX do we need to wait here for the ingress controller to pick up the
         # changes?
+        ingress = ingress_for_host(self.hostname)
         enable_ingress(self.ingress)
         write_ingress_changes(self.ingress)
 
@@ -213,10 +215,10 @@ def remove_host_rule(hostname, ingress):
         filter(
             lambda rule: rule.host != hostname,
             ingress.spec.rules))
-    ingress.spec.tls.hosts = list(
+    ingress.spec.tls[0].hosts = list(
         filter(
             lambda host: host != hostname,
-            ingress.spec.tls.hosts))
+            ingress.spec.tls[0].hosts))
 
 
 def enable_ingress(ingress):

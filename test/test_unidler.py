@@ -67,7 +67,8 @@ def unidler_ingress(client):
     ingress.spec.rules = [
         host_rule,
     ]
-    ingress.spec.tls.hosts = [
+    ingress.spec.tls = [MagicMock()]
+    ingress.spec.tls[0].hosts = [
         HOSTNAME,
     ]
     ingress.metadata.name = UNIDLER
@@ -77,12 +78,12 @@ def unidler_ingress(client):
 
 def test_remove_host_rule(unidler_ingress):
     assert any(rule.host == HOSTNAME for rule in unidler_ingress.spec.rules)
-    assert any(host == HOSTNAME for host in unidler_ingress.spec.tls.hosts)
+    assert any(host == HOSTNAME for host in unidler_ingress.spec.tls[0].hosts)
 
     unidler.remove_host_rule(HOSTNAME, unidler_ingress)
 
     assert all(rule.host != HOSTNAME for rule in unidler_ingress.spec.rules)
-    assert all(host != HOSTNAME for host in unidler_ingress.spec.tls.hosts)
+    assert all(host != HOSTNAME for host in unidler_ingress.spec.tls[0].hosts)
 
 
 def test_unmark_idled(deployment):
@@ -230,6 +231,10 @@ class TestRequestHandler(object):
 
         api = client.AppsV1beta1Api.return_value
         api.read_namespaced_deployment.return_value = deployment
+        ext = client.ExtensionsV1beta1Api.return_value
+        ext.list_ingress_for_all_namespaces.return_value.items = [
+            ingress,
+        ]
 
         unidling = Unidling(HOSTNAME)
         unidling.started = True

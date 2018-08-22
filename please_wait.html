@@ -44,7 +44,6 @@
 
         function redirect_when_ready() {
           var xhr = new XMLHttpRequest();
-          xhr.addEventListener("error", transferFailed);
           xhr.open('GET', UNIDLER_REDIRECT_URL, true);
 
           xhr.onloadend = function () {
