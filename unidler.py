@@ -28,9 +28,9 @@ SERVICE_UNAVAILABLE = HTTPStatus.SERVICE_UNAVAILABLE
 UNIDLER = 'unidler'
 
 
-
 logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'DEBUG'))
 log = logging.getLogger('unidler')
+logging.getLogger('kubernetes').setLevel(logging.WARNING)
 
 
 def run(host='0.0.0.0', port=8080):
