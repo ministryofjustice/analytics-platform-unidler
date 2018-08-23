@@ -3,6 +3,7 @@ from http import HTTPStatus
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import logging
 import os
+from os.path import abspath, dirname, join
 import socket
 from socketserver import ThreadingMixIn
 import ssl
@@ -55,10 +56,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         try:
             unidle_deployment(hostname)
-            log.info('Unidled {hostname}')
+            log.info(f'Unidled {hostname}')
             self.respond(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                'Unidling, please try again in a few seconds',
+                please_wait(f'https://{hostname}{self.path}'),
                 {'Retry-After': 10})
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
@@ -74,7 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         for header, value in headers.items():
             self.send_header(header, value)
         if 'Content-type' not in headers:
-            self.send_header('Content-type', 'text/plain')
+            self.send_header('Content-type', 'text/html')
         self.end_headers()
         if body:
             self.wfile.write(str(body).encode('utf-8'))
@@ -99,6 +100,12 @@ def unidle_deployment(hostname):
 
     with ingress(UNIDLER, 'default', ingresses) as unidler_ingress:
         remove_host_rule(hostname, unidler_ingress)
+
+
+def please_wait(url):
+    with open(join(dirname(abspath(__file__)), 'please_wait.html')) as f:
+        html = f.read()
+        return html.replace('UNIDLER_REDIRECT_URL', url)
 
 
 def build_ingress_lookup():
