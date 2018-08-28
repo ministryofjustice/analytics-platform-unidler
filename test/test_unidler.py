@@ -1,4 +1,5 @@
 from io import BytesIO
+from http import HTTPStatus
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -10,6 +11,8 @@ from unidler import (
     INGRESS_CLASS,
     RequestHandler,
     UNIDLER,
+    UNIDLER_NAMESPACE,
+    Unidling,
 )
 
 
@@ -35,6 +38,7 @@ def deployment():
     }
     deployment.metadata.name = 'test-app'
     deployment.metadata.namespace = 'test-namespace'
+    deployment.status.available_replicas = 0
     return deployment
 
 
@@ -55,15 +59,16 @@ def ingress():
 
 
 @pytest.fixture
-def unidler_ingress():
+def unidler_ingress(client):
+    api = client.ExtensionsV1beta1Api.return_value
+    ingress = api.read_namespaced_ingress.return_value
     host_rule = MagicMock()
     host_rule.host = HOSTNAME
-    ingress = MagicMock()
     ingress.spec.rules = [
         host_rule,
     ]
     ingress.metadata.name = UNIDLER
-    ingress.metadata.namespace = 'default'
+    ingress.metadata.namespace = UNIDLER_NAMESPACE
     return ingress
 
 
@@ -116,15 +121,10 @@ def test_deployment_for_ingress(client, deployment, ingress):
     api = client.AppsV1beta1Api.return_value
     api.read_namespaced_deployment.return_value = deployment
 
-    with unidler.deployment_for_ingress(ingress):
-        api.read_namespaced_deployment.assert_called_with(
-            ingress.metadata.name,
-            ingress.metadata.namespace)
-
-    api.replace_namespaced_deployment.assert_called_with(
-        deployment.metadata.name,
-        deployment.metadata.namespace,
-        deployment)
+    deployment = unidler.deployment_for_ingress(ingress)
+    api.read_namespaced_deployment.assert_called_with(
+        ingress.metadata.name,
+        ingress.metadata.namespace)
 
 
 def test_write_ingress_changes(client, ingress):
@@ -140,84 +140,112 @@ def test_write_ingress_changes(client, ingress):
 
 def test_ingress_for_host(client, ingress, unidler_ingress):
     api = client.ExtensionsV1beta1Api.return_value
-    ingresses = {
-        (ingress.metadata.name, ingress.metadata.namespace): ingress,
-        (UNIDLER, 'default'): unidler_ingress,
-    }
-    with unidler.ingress_for_host(HOSTNAME, ingresses) as ing:
-        assert ing.metadata.name == ingress.metadata.name
-        assert ing.metadata.namespace == ingress.metadata.namespace
-
-    api.patch_namespaced_ingress.assert_called_with(
-        ingress.metadata.name,
-        ingress.metadata.namespace,
-        ingress)
+    ingresses = api.list_ingress_for_all_namespaces.return_value
+    ingresses.items = [
+        ingress,
+        unidler_ingress,
+    ]
+    ing = unidler.ingress_for_host(HOSTNAME)
+    assert ing.metadata.name == ingress.metadata.name
+    assert ing.metadata.namespace == ingress.metadata.namespace
 
 
-def test_unidle_deployment(client, deployment, ingress, unidler_ingress):
+def test_unidling_start(client, deployment, ingress):
     apps = client.AppsV1beta1Api.return_value
     apps.read_namespaced_deployment.return_value = deployment
     extensions = client.ExtensionsV1beta1Api.return_value
+    extensions.list_ingress_for_all_namespaces.return_value.items = [
+        ingress
+    ]
 
-    with patch('unidler.build_ingress_lookup') as ingresses:
-        ingresses.return_value = {
-            (ingress.metadata.name, ingress.metadata.namespace): ingress,
-            (UNIDLER, 'default'): unidler_ingress,
-        }
+    unidling = Unidling(HOSTNAME)
+    unidling.start()
 
-        unidler.unidle_deployment(HOSTNAME)
-
-        apps.replace_namespaced_deployment.assert_called_with(
-            deployment.metadata.name,
-            deployment.metadata.namespace,
-            deployment)
-        assert IDLED not in deployment.metadata.labels
-        assert IDLED_AT not in deployment.metadata.annotations
-        assert deployment.spec.replicas == 2
-
-        assert extensions.patch_namespaced_ingress.mock_calls == [
-            call(
-                ingress.metadata.name,
-                ingress.metadata.namespace,
-                ingress),
-            call(
-                unidler_ingress.metadata.name,
-                unidler_ingress.metadata.namespace,
-                unidler_ingress),
-        ]
-        assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
-
-        assert len(list(filter(
-            lambda rule: rule.host == HOSTNAME,
-            unidler_ingress.spec.rules))) == 0
+    apps.replace_namespaced_deployment.assert_called_with(
+        deployment.metadata.name,
+        deployment.metadata.namespace,
+        deployment)
+    assert IDLED not in deployment.metadata.labels
+    assert IDLED_AT not in deployment.metadata.annotations
+    assert deployment.spec.replicas == 2
 
 
 class TestRequestHandler(object):
 
-    def test_doGET(self, client, deployment, ingress, unidler_ingress):
+    def test_doGET(self, client, deployment, ingress):
         assert IDLED_AT in deployment.metadata.annotations
 
         apps = client.AppsV1beta1Api.return_value
         extensions = client.ExtensionsV1beta1Api.return_value
 
-        ingresses = MagicMock()
-        ingresses.items = [ingress, unidler_ingress]
-        extensions.list_ingress_for_all_namespaces.return_value = ingresses
+        extensions.list_ingress_for_all_namespaces.return_value.items = [
+            ingress
+        ]
 
         apps.read_namespaced_deployment.return_value = deployment
 
         response = self.handle_request('GET', '/', {
             'X-Forwarded-Host': HOSTNAME,
         })
-        assert response.status_code == 503
+        assert response.status_code == HTTPStatus.ACCEPTED
         assert IDLED not in deployment.metadata.labels
         assert IDLED_AT not in deployment.metadata.annotations
         assert deployment.spec.replicas == 2
-        assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
+
+    def test_doGET_already_started(self, client, deployment, ingress):
+
+        # deployment already marked as unidle
+        deployment.metadata.labels = {}
+        deployment.metadata.annotations = {}
+        deployment.spec.replicas = 2
+
+        api = client.AppsV1beta1Api.return_value
+        api.read_namespaced_deployment.return_value = deployment
+
+        unidling = Unidling(HOSTNAME)
+        unidling.started = True
+        unidling.ingress = ingress
+        RequestHandler.unidling[HOSTNAME] = unidling
+
+        response = self.handle_request('GET', '/', {
+            'X-Forwarded-Host': HOSTNAME,
+        })
+
+        api = client.AppsV1beta1Api.return_value
+        api.replace_namespaced_deployment.assert_not_called()
+
+    def test_doGET_unidling_is_done(
+            self, client, deployment, ingress, unidler_ingress):
+
+        # deployment already marked as unidle
+        deployment.metadata.labels = {}
+        deployment.metadata.annotations = {}
+        deployment.spec.replicas = 2
+        deployment.status.available_replicas = 1
+
+        api = client.AppsV1beta1Api.return_value
+        api.read_namespaced_deployment.return_value = deployment
+        ext = client.ExtensionsV1beta1Api.return_value
+        ext.list_ingress_for_all_namespaces.return_value.items = [
+            ingress,
+        ]
+
+        unidling = Unidling(HOSTNAME)
+        unidling.started = True
+        unidling.ingress = ingress
+        RequestHandler.unidling[HOSTNAME] = unidling
+
+        response = self.handle_request('GET', '/', {
+            'X-Forwarded-Host': HOSTNAME,
+        })
 
         assert len(list(filter(
             lambda rule: rule.host == HOSTNAME,
             unidler_ingress.spec.rules))) == 0
+
+        assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
+
+        assert HOSTNAME not in RequestHandler.unidling
 
     def handle_request(self, method, path, headers={}):
         request = f'{method} {path} HTTP/1.0\n'

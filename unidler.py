@@ -22,10 +22,11 @@ IDLED = 'mojanalytics.xyz/idled'
 IDLED_AT = 'mojanalytics.xyz/idled-at'
 INGRESS_CLASS = 'kubernetes.io/ingress.class'
 UNIDLER = 'unidler'
-
+UNIDLER_NAMESPACE = 'default'
 
 logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'DEBUG'))
 log = logging.getLogger('unidler')
+logging.getLogger('kubernetes').setLevel(logging.WARNING)
 
 
 def run(host='0.0.0.0', port=8080):
@@ -44,40 +45,40 @@ class UnidlerServer(ThreadingMixIn, HTTPServer):
 
 
 class RequestHandler(BaseHTTPRequestHandler):
+    unidling = {}
 
     def do_GET(self):
-        hostname = self.headers.get('X-Forwarded-Host')
+        hostname = self.headers.get('X-Forwarded-Host', UNIDLER)
 
-        if not hostname:
-            return self.respond(HTTPStatus.OK, 'Unidler OK')
-
-        log.info(f'Received {self.requestline} for host {hostname}')
+        if hostname.startswith(UNIDLER):
+            log.debug('No hostname specified')
+            self.respond(HTTPStatus.NO_CONTENT, '')
+            return
 
         try:
-            unidle_deployment(hostname)
-            log.info('Unidled {hostname}')
-            self.respond(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                'Unidling, please try again in a few seconds',
-                {'Retry-After': 10})
+            if hostname in self.unidling:
+                if self.unidling[hostname].is_done():
+                    self.unidling[hostname].enable_ingress()
+                    del self.unidling[hostname]
+
+            elif is_idle(hostname):
+                self.unidling[hostname] = Unidling(hostname)
+                self.unidling[hostname].start()
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
-            log.error(not_found)
-            self.respond(HTTPStatus.NOT_FOUND, not_found.message)
+            self.send_error(HTTPStatus.NOT_FOUND, str(not_found))
 
-        except kubernetes.client.rest.ApiException as error:
-            log.error(error)
-            self.respond(HTTPStatus.INTERNAL_SERVER_ERROR, error.message)
+        except Exception as error:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
 
-    def respond(self, status, body=None, headers={}):
+        else:
+            self.respond(HTTPStatus.ACCEPTED, please_wait(hostname))
+
+    def respond(self, status, body):
         self.send_response(status)
-        for header, value in headers.items():
-            self.send_header(header, value)
-        if 'Content-type' not in headers:
-            self.send_header('Content-type', 'text/plain')
+        self.send_header('Content-type', 'text/html')
         self.end_headers()
-        if body:
-            self.wfile.write(str(body).encode('utf-8'))
+        self.wfile.write(str(body).encode('utf-8'))
 
 
 class DeploymentNotFound(Exception):
@@ -88,73 +89,105 @@ class IngressNotFound(Exception):
     pass
 
 
-def unidle_deployment(hostname):
-    ingresses = build_ingress_lookup()
+class Unidling(object):
 
-    with ingress_for_host(hostname, ingresses) as ing:
-        with deployment_for_ingress(ing) as deployment:
-            restore_replicas(deployment)
-            unmark_idled(deployment)
-            enable_ingress(ing)
+    def __init__(self, hostname):
+        self.hostname = hostname
+        self.ingress = None
+        self.deployment = None
+        self.started = False
+        self.replicas = 0
+        self.enabled = False
 
-    with ingress(UNIDLER, 'default', ingresses) as unidler_ingress:
-        remove_host_rule(hostname, unidler_ingress)
+    def start(self):
+        if not self.started:
+            self.started = True
+            self.ingress = ingress_for_host(self.hostname)
+            self.deployment = deployment_for_ingress(self.ingress)
 
+            restore_replicas(self.deployment)
+            unmark_idled(self.deployment)
 
-def build_ingress_lookup():
-    ingresses = client.ExtensionsV1beta1Api().list_ingress_for_all_namespaces()
-    return dict(
-        ((ingress.metadata.name, ingress.metadata.namespace), ingress)
-        for ingress in ingresses.items)
+            # XXX writing changes triggers the asynchronous creation of
+            # pods, which can take a few seconds
+            write_deployment_changes(self.deployment)
 
+    def is_done(self):
+        if self.started:
+            self.deployment = deployment_for_ingress(self.ingress)
+            replicas = int(self.deployment.status.available_replicas or 0)
+            return (
+                IDLED not in self.deployment.metadata.labels and
+                replicas >= 1)
+        return False
 
-@contextlib.contextmanager
-def ingress_for_host(hostname, ingresses):
-    for ingress in ingresses.values():
-        name = ingress.metadata.name
-        namespace = ingress.metadata.namespace
-
-        if (name, namespace) == (UNIDLER, 'default'):
-            continue
-
-        for rule in ingress.spec.rules:
-            if rule.host == hostname:
-                log.debug(
-                    f'Found ingress for {hostname}: {name} '
-                    f'in namespace {namespace}')
-                yield ingress
-                return write_ingress_changes(ingress)
-
-    raise IngressNotFound(f'Ingress for host {hostname} not found')
-
-
-def write_ingress_changes(ingress):
-    log.debug(
-        f'Writing changes to ingress {ingress.metadata.name} '
-        f'in namespace {ingress.metadata.namespace}')
-    client.ExtensionsV1beta1Api().patch_namespaced_ingress(
-        ingress.metadata.name,
-        ingress.metadata.namespace,
-        ingress)
+    def enable_ingress(self):
+        if not self.enabled:
+            self.enabled = True
+            ingress = unidler_ingress()
+            remove_host_rule(self.hostname, ingress)
+            write_ingress_changes(ingress)
+            # XXX do we need to wait here for the ingress controller to pick up the
+            # changes?
+            ingress = ingress_for_host(self.hostname)
+            enable_ingress(self.ingress)
+            write_ingress_changes(self.ingress)
 
 
-@contextlib.contextmanager
 def deployment_for_ingress(ingress):
-    name = ingress.metadata.name
-    namespace = ingress.metadata.namespace
-
     try:
-        deployment = client.AppsV1beta1Api().read_namespaced_deployment(
-            name,
-            namespace)
-        log.debug(f'Found deployment {name} in namespace {namespace}')
-
-        yield deployment
-
-        write_deployment_changes(deployment)
+        return client.AppsV1beta1Api().read_namespaced_deployment(
+            ingress.metadata.name,
+            ingress.metadata.namespace)
 
     except kubernetes.client.rest.ApiException as error:
-        raise DeploymentNotFound(f'Deployment {name} not found in {namespace}')
+        raise DeploymentNotFound(
+            ingress.metadata.name,
+            ingress.metadata.namespace)
+
+
+def ingress_for_host(hostname):
+    # XXX assumes first ingress rule is the one we want
+    ingresses = client.ExtensionsV1beta1Api().list_ingress_for_all_namespaces()
+    ingress = next(
+        (
+            ingress
+            for ingress in ingresses.items
+            if (ingress.metadata.name != UNIDLER and
+                ingress.spec.rules[0].host == hostname)
+        ),
+        None)
+
+    if ingress is None:
+        raise IngressNotFound(hostname)
+
+    return ingress
+
+
+def is_idle(hostname):
+    deployment = deployment_for_ingress(ingress_for_host(hostname))
+    return IDLED in deployment.metadata.labels
+
+
+def restore_replicas(deployment):
+    annotation = deployment.metadata.annotations.get(IDLED_AT)
+
+    if annotation is not None:
+        idled_at, replicas = annotation.split(',')
+        log.debug(f'Restoring {replicas} replicas')
+        deployment.spec.replicas = int(replicas)
+
+    else:
+        # TODO Assume a default of 1?
+        log.error('Deployment has no idled-at annotation')
+
+
+def unmark_idled(deployment):
+    log.debug('Removing idled annotation and label')
+    if IDLED in deployment.metadata.labels:
+        del deployment.metadata.labels[IDLED]
+    if IDLED_AT in deployment.metadata.annotations:
+        del deployment.metadata.annotations[IDLED_AT]
 
 
 def write_deployment_changes(deployment):
@@ -167,28 +200,19 @@ def write_deployment_changes(deployment):
         deployment)
 
 
-def restore_replicas(deployment):
-    idled_at, replicas = deployment.metadata.annotations[IDLED_AT].split(',')
-    log.debug(f'Restoring {replicas} replicas')
-    deployment.spec.replicas = int(replicas)
+def write_ingress_changes(ingress):
+    log.debug(
+        f'Writing changes to ingress {ingress.metadata.name} '
+        f'in namespace {ingress.metadata.namespace}')
+    client.ExtensionsV1beta1Api().patch_namespaced_ingress(
+        ingress.metadata.name,
+        ingress.metadata.namespace,
+        ingress)
 
 
-def enable_ingress(ingress):
-    log.debug('Enabling ingress')
-    ingress.metadata.annotations[INGRESS_CLASS] = 'nginx'
-
-
-def unmark_idled(deployment):
-    log.debug('Removing idled annotation and label')
-    del deployment.metadata.labels[IDLED]
-    del deployment.metadata.annotations[IDLED_AT]
-
-
-@contextlib.contextmanager
-def ingress(name, namespace, ingresses):
-    ingress = ingresses[(name, namespace)]
-    yield ingress
-    write_ingress_changes(ingress)
+def unidler_ingress():
+    return client.ExtensionsV1beta1Api().read_namespaced_ingress(
+        UNIDLER, UNIDLER_NAMESPACE)
 
 
 def remove_host_rule(hostname, ingress):
@@ -200,6 +224,18 @@ def remove_host_rule(hostname, ingress):
         filter(
             lambda rule: rule.host != hostname,
             ingress.spec.rules))
+
+
+def enable_ingress(ingress):
+    ingress.metadata.annotations[INGRESS_CLASS] = 'nginx'
+
+
+def please_wait(hostname):
+    with open('please_wait.html') as f:
+        body = f.read()
+        return body.replace(
+            f"UNIDLER_REDIRECT_URL = ''",
+            f"UNIDLER_REDIRECT_URL = 'https://{hostname}'")
 
 
 if __name__ == '__main__':
