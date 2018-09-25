@@ -95,7 +95,7 @@ def test_enable_ingress(ingress):
 
     unidler.enable_ingress(ingress)
 
-    assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
+    assert ingress.metadata.annotations[INGRESS_CLASS] == 'istio'
 
 
 def test_restore_replicas(deployment):
@@ -243,7 +243,7 @@ class TestRequestHandler(object):
             lambda rule: rule.host == HOSTNAME,
             unidler_ingress.spec.rules))) == 0
 
-        assert ingress.metadata.annotations[INGRESS_CLASS] == 'nginx'
+        assert ingress.metadata.annotations[INGRESS_CLASS] == 'istio'
 
         assert HOSTNAME not in RequestHandler.unidling
 

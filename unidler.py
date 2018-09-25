@@ -21,6 +21,7 @@ from kubernetes.client.models import (
 IDLED = 'mojanalytics.xyz/idled'
 IDLED_AT = 'mojanalytics.xyz/idled-at'
 INGRESS_CLASS = 'kubernetes.io/ingress.class'
+INGRESS_CLASS_NAME = os.environ.get('INGRESS_CLASS_NAME', 'istio')
 UNIDLER = 'unidler'
 UNIDLER_NAMESPACE = 'default'
 
@@ -227,7 +228,7 @@ def remove_host_rule(hostname, ingress):
 
 
 def enable_ingress(ingress):
-    ingress.metadata.annotations[INGRESS_CLASS] = 'nginx'
+    ingress.metadata.annotations[INGRESS_CLASS] = INGRESS_CLASS_NAME
 
 
 def please_wait(hostname):
