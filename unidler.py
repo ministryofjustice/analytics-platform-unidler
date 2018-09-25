@@ -49,8 +49,9 @@ class RequestHandler(BaseHTTPRequestHandler):
     unidling = {}
 
     def do_GET(self):
-        hostname = self.headers.get('X-Forwarded-Host', UNIDLER)
+        log.debug(f'HEADERS: {self.headers}')
 
+        hostname = self.headers.get('Host', UNIDLER)
         if hostname.startswith(UNIDLER):
             log.debug('No hostname specified')
             self.respond(HTTPStatus.NO_CONTENT, '')

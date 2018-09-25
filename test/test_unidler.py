@@ -185,7 +185,7 @@ class TestRequestHandler(object):
         apps.read_namespaced_deployment.return_value = deployment
 
         response = self.handle_request('GET', '/', {
-            'X-Forwarded-Host': HOSTNAME,
+            'Host': HOSTNAME,
         })
         assert response.status_code == HTTPStatus.ACCEPTED
         assert IDLED not in deployment.metadata.labels
@@ -208,7 +208,7 @@ class TestRequestHandler(object):
         RequestHandler.unidling[HOSTNAME] = unidling
 
         response = self.handle_request('GET', '/', {
-            'X-Forwarded-Host': HOSTNAME,
+            'Host': HOSTNAME,
         })
 
         api = client.AppsV1beta1Api.return_value
@@ -236,7 +236,7 @@ class TestRequestHandler(object):
         RequestHandler.unidling[HOSTNAME] = unidling
 
         response = self.handle_request('GET', '/', {
-            'X-Forwarded-Host': HOSTNAME,
+            'Host': HOSTNAME,
         })
 
         assert len(list(filter(
