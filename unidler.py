@@ -194,13 +194,13 @@ def restore_replicas(deployment, log=app_log):
     annotation = deployment.metadata.annotations.get(IDLED_AT)
 
     if annotation is not None:
-        idled_at, replicas = annotation.split(',')
-        log.debug(f'Restoring {replicas} replicas')
-        deployment.spec.replicas = int(replicas)
-
+        replicas = annotation.split(',')[1]
     else:
-        # TODO Assume a default of 1?
-        log.error('Deployment has no idled-at annotation')
+        log.error('Deployment has no idled-at annotation - assuming 1 replica')
+        replicas = 1
+
+    log.debug(f'Restoring {replicas} replicas')
+    deployment.spec.replicas = int(replicas)
 
 def unmark_idled(deployment, log=app_log):
     log.debug('Removing idled annotation and label')
