@@ -36,7 +36,7 @@ def run(host='0.0.0.0', port=8080):
     except:
         config.load_kube_config()
 
-    unidler = UnidlerServer((host, port), RequestHandler)
+    unidler = UnidlerServer((host, int(port)), RequestHandler)
     app_log.info(f'Unidler listening on {host}:{port}')
     unidler.serve_forever()
 
@@ -49,8 +49,6 @@ class RequestHandler(BaseHTTPRequestHandler):
     unidling = {}
 
     def do_GET(self):
-        log.debug(f'HEADERS: {self.headers}')
-
         hostname = self.headers.get('Host', UNIDLER)
         if hostname.startswith(UNIDLER):
             app_log.debug('No hostname specified')
@@ -155,7 +153,7 @@ class Unidling(object):
             write_ingress_changes(self.ingress, self.log)
         else:
             self.log.debug('BAD STATE 3')
-        
+
 
 def deployment_for_ingress(ingress):
     try:
@@ -243,7 +241,7 @@ def remove_host_rule(hostname, ingress, log=app_log):
         f'Removing host rules for {hostname} '
         f'from ingress {ingress.metadata.name} '
         f'in namespace {ingress.metadata.namespace}')
-    
+
     num_rules_before = len(ingress.spec.rules)
     ingress.spec.rules = list(
         filter(
