@@ -73,7 +73,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.unidling[hostname].start()
 
             else:
-                log.error('BAD STATE 4')
+                log.error('Shouldn\'t happen - idler received request when it thinks the tool is not idled')
 
         except (DeploymentNotFound, IngressNotFound) as not_found:
             self.send_error(HTTPStatus.NOT_FOUND, str(not_found))
@@ -124,7 +124,7 @@ class Unidling(object):
             # pods, which can take a few seconds
             write_deployment_changes(self.deployment, self.log)
         else:
-            self.log.debug('BAD STATE 1')
+            self.log.error('Shouldn\'t happen - starting the idled process for a second time')
 
     def is_done(self):
         if self.started:
@@ -136,7 +136,7 @@ class Unidling(object):
                 IDLED not in self.deployment.metadata.labels and
                 replicas >= 1)
         else:
-            self.log.debug('BAD STATE 2')
+            self.log.error('Shouldn\'t happen - state is "started" yet unidle appears to be "done"')
         return False
 
     def enable_ingress(self):
@@ -152,8 +152,7 @@ class Unidling(object):
             enable_ingress(self.ingress)
             write_ingress_changes(self.ingress, self.log)
         else:
-            self.log.debug('BAD STATE 3')
-
+            self.log.error('Shouldn\'t happen - Ingress enabling triggered for the second time')
 
 def deployment_for_ingress(ingress):
     try:
